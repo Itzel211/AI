@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>語音對話 - Gemini 回應</title>
+</head>
+<body>
+    <h1>🎙️ 說話吧！</h1>
+    <p>按下錄音按鈕，講話完放開，系統會用 Gemini 回應並用台語播放。</p>
+    <button id="recordBtn">🎤 錄音</button>
+    <p>📝 認識結果：<span id="recognized"></span></p>
+    <p>🤖 Gemini 回應：<span id="response"></span></p>
+    <audio id="audioPlayer" controls></audio>
+
+<script>
+const recordBtn = document.getElementById('recordBtn');
+const audioPlayer = document.getElementById('audioPlayer');
+let mediaRecorder, audioChunks = [];
+
+recordBtn.addEventListener('mousedown', async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.start();
+});
+
+recordBtn.addEventListener('mouseup', () => {
+    mediaRecorder.stop();
+    mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'record.webm');
+
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (data.error) {
+            alert(data.error);
+        } else {
+            document.getElementById('recognized').textContent = data.recognized_text;
+            document.getElementById('response').textContent = data.gemini_reply;
+
+            if (data.audio_base64) {
+                audioPlayer.src = "data:audio/wav;base64," + data.audio_base64;
+                audioPlayer.play();
+            }
+        }
+    };
+});
+</script>
+</body>
+</html>
