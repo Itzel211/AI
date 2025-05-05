@@ -7,11 +7,11 @@ import json
 import base64
 import google.generativeai as genai
 import threading
+import time
 
 app = Flask(__name__)
-
-# 語音辨識Token
 API_KEY = "902943809fad7b18f22f221d4abe7abbd7b1235a"
+GENAI_KEY = "AIzaSyDNXmYgU7598r_3zgw23FhRsQJyX8nK1aI"
 
 def get_token():
     url = "https://asr.api.yating.tw/v1/token"
@@ -20,42 +20,58 @@ def get_token():
     response = requests.post(url, headers=headers, json=data)
     if response.status_code == 201:
         return response.json().get("auth_token")
-    else:
-        print("Token獲取失敗:", response.json())
-        return None
+    print("Token獲取失敗:", response.text)
+    return None
 
 def recognize_audio_ws(raw_audio, token):
     WS_URL = f"wss://asr.api.yating.tw/ws/v1/?token={token}"
     result = {}
+    done_event = threading.Event()
 
     def on_message(ws, message):
+        print("💬 收到 Yating 回應：", message)
         data = json.loads(message)
-        if "pipe" in data and "asr_final" in data["pipe"] and data["pipe"]["asr_final"]:
-            result['text'] = data["pipe"]["asr_sentence"]
-            ws.close()
+        if "pipe" in data:
+            if data["pipe"].get("asr_final"):
+                result["text"] = data["pipe"]["asr_sentence"]
+                done_event.set()
+                ws.close()
 
-    ws = websocket.WebSocketApp(WS_URL, on_message=on_message)
-    thread = threading.Thread(target=ws.run_forever)
+    def on_open(ws):
+        print("🔗 WebSocket 已連線，開始送音訊")
+        ws.send(raw_audio, opcode=websocket.ABNF.OPCODE_BINARY)
+
+    def on_error(ws, error):
+        print("❌ WebSocket 錯誤：", error)
+        done_event.set()
+
+    ws_app = websocket.WebSocketApp(
+        WS_URL,
+        on_open=on_open,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=lambda *args: print("🔚 WebSocket 已關閉")
+    )
+
+    thread = threading.Thread(target=ws_app.run_forever, daemon=True)
     thread.start()
-    import time
-    time.sleep(1)  # 等待連線穩定
-    ws.send(raw_audio, opcode=websocket.ABNF.OPCODE_BINARY)
 
-    timeout = 10
-    start = time.time()
-    while 'text' not in result and time.time() - start < timeout:
-        time.sleep(0.1)
+    # 最多等 10 秒
+    if not done_event.wait(timeout=10):
+        print("⚠️ 語音辨識逾時")
+        return None
 
-    return result.get('text')
+    return result.get("text")
+
 
 def call_gemini(text):
-    genai.configure(api_key="AIzaSyDNXmYgU7598r_3zgw23FhRsQJyX8nK1aI")
+    genai.configure(api_key=GENAI_KEY)
     try:
         model = genai.GenerativeModel("gemini-1.5-pro")
         response = model.generate_content(text)
-        return response.text if hasattr(response, 'text') else "❌ 無回應"
+        return response.text if hasattr(response, "text") else "❌ 無回應"
     except Exception as e:
-        print("Gemini錯誤:", e)
+        print("Gemini 錯誤:", e)
         return "❌ 呼叫失敗"
 
 def synthesize_taiwanese(text):
@@ -69,27 +85,34 @@ def synthesize_taiwanese(text):
     res = requests.post(TTS_URL, json=payload, headers=headers)
     if res.status_code == 201:
         return res.json().get("audioContent")
-    else:
-        print("TTS失敗:", res.status_code, res.text)
-        return None
+    print("TTS 失敗:", res.status_code, res.text)
+    return None
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+@app.route('/start-record', methods=['POST'])
+def start_record():
+    print("✅ 收到 /start-record")
+    return jsonify({"status": "ok"})
+
 @app.route('/upload', methods=['POST'])
 def upload_audio():
+    print("🎤 收到音訊")
     file = request.files.get('audio')
     if not file:
         return jsonify({'error': '未收到音檔'}), 400
 
-    # 音訊轉16kHz / 16bit / mono
-    audio = AudioSegment.from_file(file, format="webm")
-    audio = audio.set_channels(1).set_frame_rate(16000).set_sample_width(2)
-    pcm_wav = BytesIO()
-    audio.export(pcm_wav, format="wav")
-    pcm_wav.seek(0)
-    raw_pcm = pcm_wav.read()[44:]  # 去掉WAV header
+    try:
+        audio = AudioSegment.from_file(file, format="webm")
+        audio = audio.set_channels(1).set_frame_rate(16000).set_sample_width(2)
+        raw_pcm = audio.raw_data
+        print("🔊 傳送音訊長度：", len(raw_pcm))
+
+    except Exception as e:
+        print("音訊處理錯誤:", e)
+        return jsonify({'error': '音訊處理失敗'}), 500
 
     token = get_token()
     if not token:
@@ -101,11 +124,13 @@ def upload_audio():
 
     gemini_reply = call_gemini(recognized_text)
     audio_base64 = synthesize_taiwanese(gemini_reply)
+    if not audio_base64:
+        return jsonify({'error': 'TTS 失敗'}), 500
 
     return jsonify({
         "recognized_text": recognized_text,
         "gemini_reply": gemini_reply,
-        "audio_base64": audio_base64
+        "audio_base64": f"data:audio/wav;base64,{audio_base64}"
     })
 
 if __name__ == '__main__':
