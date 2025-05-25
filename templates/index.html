@@ -1,96 +1,47 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-    <meta charset="UTF-8">
-    <title>說話吧！</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; }
-        button { font-size: 1.2em; padding: 10px 20px; }
-        h3 { margin-top: 30px; }
-    </style>
+  <meta charset="UTF-8">
+  <title>來台槓</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background-color: #ffffff;
+      text-align: center;
+    }
+    .top-bar {
+      background-color: #d0e8ff;
+      height: 1cm;
+      width: 100%;
+    }
+    h1 {
+      margin-top: 50px;
+    }
+    .button-container {
+      margin-top: -40px; /* 負值表示往上移動 */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: calc(100vh - 3cm);
+      gap: 20px;
+    }
+    .button-img {
+      width: 10cm;
+      height: 5.5cm;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-    <h1>🗣️ 台語語音聊天機器人</h1>
-    <button id="recordBtn">🎤 開始講話</button>
-
-    <h3>📝 辨識文字：</h3>
-    <div id="resultText">（等待中）</div>
-
-    <h3>🤖 Gemini 回應：</h3>
-    <div id="geminiReply">（等待中）</div>
-
-    <h3>🔊 語音播放：</h3>
-    <audio id="responseAudio" controls></audio>
-
-    <script>
-        let mediaRecorder;
-        let audioChunks = [];
-
-        document.getElementById("recordBtn").addEventListener("click", async () => {
-            await fetch("/start-record", { method: "POST" });
-
-            audioChunks = [];
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-
-            mediaRecorder.ondataavailable = e => {
-                if (e.data.size > 0) audioChunks.push(e.data);
-            };
-
-            mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-
-                // 🔍 顯示錄音結果長度
-                console.log("🎧 錄音結束，大小：", audioBlob.size, "bytes");
-
-                // ⚠️ 若錄音太短，提示重試
-                if (audioBlob.size < 5000) {
-                    alert("⚠️ 錄音太短或沒有聲音，請大聲說話後再試一次！");
-                    document.getElementById("recordBtn").disabled = false;
-                    document.getElementById("recordBtn").textContent = "🎤 再講一次";
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append("audio", audioBlob, "recording.webm");
-
-                document.getElementById("resultText").textContent = "⏳ 辨識中...";
-                document.getElementById("geminiReply").textContent = "⏳ 等待 Gemini 回應...";
-
-                try {
-                    const res = await fetch("/upload", { method: "POST", body: formData });
-                    const data = await res.json();
-
-                    document.getElementById("resultText").textContent = data.recognized_text || "❌ 未辨識";
-                    document.getElementById("geminiReply").textContent = data.gemini_reply || "❌ 無回應";
-
-                    if (data.audio_base64) {
-                        const audio = document.getElementById("responseAudio");
-                        audio.src = data.audio_base64;
-                        audio.play();
-                    } else {
-                        alert("❌ 沒有語音可播放");
-                    }
-                } catch (err) {
-                    alert("❌ 系統錯誤");
-                    console.error(err);
-                }
-
-                document.getElementById("recordBtn").disabled = false;
-                document.getElementById("recordBtn").textContent = "🎤 再講一次";
-            };
-
-
-            mediaRecorder.start();
-            document.getElementById("recordBtn").textContent = "🎙️ 錄音中（10 秒）...";
-            document.getElementById("recordBtn").disabled = true;
-
-            setTimeout(() => {
-                mediaRecorder.stop();
-                document.getElementById("recordBtn").textContent = "🎤 再講一次";
-                document.getElementById("recordBtn").disabled = false;
-            }, 10000);
-        });
-    </script>
+  <div class="top-bar"></div>
+  <h1 style="color: #47659f;">來台槓！</h1>
+  <div class="button-container">
+    <a href="/topics"><img src="/static/images/robot.png" alt="robot" class="button-img"></a>
+    <a href="/heart"><img src="/static/images/heart.png" alt="heart" class="button-img"></a>
+  </div>
 </body>
 </html>

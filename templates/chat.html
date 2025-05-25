@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>說話吧！</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background-color: #ffffff;
+      text-align: center;
+      color: #47659f;
+    }
+
+    .top-bar {
+      background-color: #d0e8ff;
+      height: 1cm;
+      width: 100%;
+    }
+
+    h1 {
+      margin-top: 50px;
+    }
+
+    .center-wrapper {
+      display: flex;
+      justify-content: center;
+      margin-top: 40px;
+    }
+
+    .center-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: left;
+    }
+
+    .line {
+      margin: 10px 0;
+      font-size: 18px;
+      width: 100%;
+    }
+
+    .record-button {
+      width: 200px;
+      height: 110px;
+      border-radius: 50%;
+      padding: 10px;
+      margin-bottom: 20px;
+      cursor: pointer;
+    }
+
+    #responseAudio {
+      margin-top: 30px;
+    }
+
+    .chat-image {
+      width: 300px;
+      height: auto;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="top-bar"></div>
+
+  <h1>ChatTai 台語語音聊天機器人</h1>
+
+  <div class="center-wrapper">
+    <div class="center-box">
+      <img src="/static/images/chatrobot.png" alt="Chat 機器人" class="chat-image">
+
+      <!-- 錄音按鈕 -->
+      <img id="recordBtn" src="/static/images/record.png" alt="開始講話" class="record-button">
+
+      <!-- 文字區 -->
+      <div class="line">
+        <strong>辨識文字：</strong>
+        <span id="resultText">辨識中... </span>
+      </div>
+
+      <div class="line">
+        <strong>ChatTai ：</strong>
+        <span id="geminiReply">{{ gemini_reply or "等待回應..." }}</span>
+      </div>
+
+      <!-- 單一播放元件，支援手動與自動播放 -->
+      {% if audio_base64 %}
+      <audio id="responseAudio" controls autoplay>
+        <source src="{{ audio_base64 }}" type="audio/wav">
+      </audio>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+
+    const recordBtn = document.getElementById("recordBtn");
+
+    recordBtn.addEventListener("click", async () => {
+      recordBtn.style.pointerEvents = "none";
+      recordBtn.src = "/static/images/record_gray.png";
+
+      await fetch("/start-record", { method: "POST" });
+
+      audioChunks = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+
+      mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        console.log("錄音結束，大小：", audioBlob.size, "bytes");
+
+        if (audioBlob.size < 5000) {
+          alert("錄音太短或沒有聲音，請大聲說話後再試一次！");
+          recordBtn.src = "/static/images/record.png";
+          recordBtn.style.pointerEvents = "auto";
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("audio", audioBlob, "recording.webm");
+
+        document.getElementById("resultText").textContent = "⏳ 辨識中...";
+        document.getElementById("geminiReply").textContent = "⏳ 等待回應...";
+
+        try {
+          const res = await fetch("/upload", { method: "POST", body: formData });
+          const data = await res.json();
+
+          document.getElementById("resultText").textContent = data.recognized_text || "未辨識";
+          document.getElementById("geminiReply").textContent = data.gemini_reply || "無回應";
+
+          if (data.audio_base64) {
+            const audio = document.getElementById("responseAudio");
+            audio.src = data.audio_base64;
+            audio.play();
+          } else {
+            alert("沒有語音可播放");
+          }
+        } catch (err) {
+          alert("系統錯誤");
+          console.error(err);
+        }
+
+        recordBtn.src = "/static/images/record.png";
+        recordBtn.style.pointerEvents = "auto";
+      };
+
+      mediaRecorder.start();
+
+      setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+          mediaRecorder.stop();
+        }
+      }, 10000);
+    });
+
+    // ✅ 自動播放從後端帶來的 Gemini 回應語音（主題模式進入時）
+    // 只在有 audio 時才播放（自由聊天不會執行）
+    window.addEventListener("DOMContentLoaded", () => {
+      const audio = document.getElementById("responseAudio");
+      // ✅ 如果沒有 audio 就不動作（自由聊天不會有 audio）
+      if (audio && audio.src && !audio.paused) {
+        audio.play().catch(err => {
+          console.warn("瀏覽器阻擋自動播放：", err);
+        });
+      }
+    });
+
+  </script>
+</body>
+</html>
