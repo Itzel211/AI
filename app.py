@@ -6,6 +6,7 @@ app = Flask(__name__)
 API_KEY = "902943809fad7b18f22f221d4abe7abbd7b1235a"
 GENAI_KEY = "AIzaSyA5Nw_GAKZbnY0pndNNgxThs_TRk_4MXRQ"
 
+
 def get_token():
     url = "https://asr.api.yating.tw/v1/token"
     headers = {"key": API_KEY, "Content-Type": "application/json"}
@@ -54,7 +55,7 @@ def call_gemini(text):
     genai.configure(api_key=GENAI_KEY)
     try:
         model = genai.GenerativeModel("gemini-2.0-flash-lite")
-        prompt = f"請用簡單且聊天自然、溫柔的方式回答:{text}"
+        prompt = f"請用簡單且聊天自然、溫柔的方式回答，避免使用 emoji，回覆請保持簡單:{text}"
         response = model.generate_content(prompt)
         return response.text if hasattr(response, "text") else "無回應"
     except Exception as e:
